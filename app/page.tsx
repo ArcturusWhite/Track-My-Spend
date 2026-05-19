@@ -3,7 +3,14 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 
 type Tab = "summary" | "income" | "expenses" | "charts";
-type ModalType = "none" | "menu" | "income" | "expense" | "categories";
+type ModalType =
+  | "none"
+  | "menu"
+  | "income"
+  | "expense"
+  | "categories"
+  | "editIncome"
+  | "editExpense";
 type CategoryType = "income" | "expense";
 
 type Income = {
@@ -322,6 +329,16 @@ export default function Home() {
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseCategory, setExpenseCategory] = useState(defaultExpenseCategories[0]);
   const [expenseDate, setExpenseDate] = useState(getTodayKey);
+  const [editingIncomeId, setEditingIncomeId] = useState("");
+  const [editIncomeCategory, setEditIncomeCategory] = useState("Salario");
+  const [editIncomeDescription, setEditIncomeDescription] = useState("");
+  const [editIncomeAmount, setEditIncomeAmount] = useState("");
+  const [editIncomeDate, setEditIncomeDate] = useState(getTodayKey);
+  const [editingExpenseId, setEditingExpenseId] = useState("");
+  const [editExpenseName, setEditExpenseName] = useState("");
+  const [editExpenseAmount, setEditExpenseAmount] = useState("");
+  const [editExpenseCategory, setEditExpenseCategory] = useState(defaultExpenseCategories[0]);
+  const [editExpenseDate, setEditExpenseDate] = useState(getTodayKey);
   const [newCategoryType, setNewCategoryType] = useState<CategoryType>("expense");
   const [newCategoryName, setNewCategoryName] = useState("");
   const [editingCategory, setEditingCategory] = useState<{
@@ -471,6 +488,48 @@ export default function Home() {
     });
   }
 
+  function openEditIncome(income: Income) {
+    setChartDetail(null);
+    setEditingIncomeId(income.id);
+    setEditIncomeCategory(income.category);
+    setEditIncomeDescription(income.description);
+    setEditIncomeAmount(String(income.amount));
+    setEditIncomeDate(income.date);
+    setActiveModal("editIncome");
+  }
+
+  function saveEditedIncome(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const amount = Number(editIncomeAmount);
+
+    if (!editingIncomeId || amount <= 0) {
+      return;
+    }
+
+    updateCurrentMonth({
+      ...monthData,
+      incomes: monthData.incomes.map((income) =>
+        income.id === editingIncomeId
+          ? {
+              ...income,
+              category: editIncomeCategory,
+              description: editIncomeDescription.trim(),
+              amount,
+              date: editIncomeDate || getTodayKey()
+            }
+          : income
+      )
+    });
+
+    setEditingIncomeId("");
+    setEditIncomeCategory(categoryConfig.income[0] || fallbackCategories.income);
+    setEditIncomeDescription("");
+    setEditIncomeAmount("");
+    setEditIncomeDate(getTodayKey());
+    setActiveModal("none");
+  }
+
   function addExpense(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -506,6 +565,48 @@ export default function Home() {
       ...monthData,
       expenses: monthData.expenses.filter((expense) => expense.id !== id)
     });
+  }
+
+  function openEditExpense(expense: Expense) {
+    setChartDetail(null);
+    setEditingExpenseId(expense.id);
+    setEditExpenseName(expense.name);
+    setEditExpenseAmount(String(expense.amount));
+    setEditExpenseCategory(expense.category);
+    setEditExpenseDate(expense.date);
+    setActiveModal("editExpense");
+  }
+
+  function saveEditedExpense(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const amount = Number(editExpenseAmount);
+
+    if (!editingExpenseId || !editExpenseName.trim() || amount <= 0) {
+      return;
+    }
+
+    updateCurrentMonth({
+      ...monthData,
+      expenses: monthData.expenses.map((expense) =>
+        expense.id === editingExpenseId
+          ? {
+              ...expense,
+              name: editExpenseName.trim(),
+              amount,
+              category: editExpenseCategory,
+              date: editExpenseDate || getTodayKey()
+            }
+          : expense
+      )
+    });
+
+    setEditingExpenseId("");
+    setEditExpenseName("");
+    setEditExpenseAmount("");
+    setEditExpenseCategory(categoryConfig.expense[0] || fallbackCategories.expense);
+    setEditExpenseDate(getTodayKey());
+    setActiveModal("none");
   }
 
   function addCategory(event: FormEvent<HTMLFormElement>) {
@@ -815,8 +916,15 @@ export default function Home() {
                       <p className="font-black text-leaf">{formatCurrency(income.amount)}</p>
                       <button
                         type="button"
+                        onClick={() => openEditIncome(income)}
+                        className="mt-1 text-xs font-black text-leaf"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => deleteIncome(income.id)}
-                        className="mt-1 text-xs font-black text-coral"
+                        className="ml-3 mt-1 text-xs font-black text-coral"
                       >
                         Eliminar
                       </button>
@@ -867,8 +975,15 @@ export default function Home() {
                       <p className="font-black text-ink">{formatCurrency(expense.amount)}</p>
                       <button
                         type="button"
+                        onClick={() => openEditExpense(expense)}
+                        className="mt-1 text-xs font-black text-leaf"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => deleteExpense(expense.id)}
-                        className="mt-1 text-xs font-black text-coral"
+                        className="ml-3 mt-1 text-xs font-black text-coral"
                       >
                         Eliminar
                       </button>
@@ -1140,6 +1255,19 @@ export default function Home() {
                         >
                           {formatCurrency(record.amount)}
                         </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (chartDetail.type === "income") {
+                              openEditIncome(record as Income);
+                            } else {
+                              openEditExpense(record as Expense);
+                            }
+                          }}
+                          className="rounded-full bg-white px-3 py-2 text-xs font-black text-leaf"
+                        >
+                          Editar
+                        </button>
                       </li>
                     );
                   })}
@@ -1147,6 +1275,142 @@ export default function Home() {
               )}
             </div>
           </div>
+        </Modal>
+      )}
+
+      {activeModal === "editIncome" && (
+        <Modal title="Editar ingreso" onClose={() => setActiveModal("none")}>
+          <form onSubmit={saveEditedIncome} className="grid gap-4">
+            <label className="grid gap-2 text-sm font-black text-ink" htmlFor="edit-income-category">
+              Categoria
+              <select
+                id="edit-income-category"
+                value={editIncomeCategory}
+                onChange={(event) => setEditIncomeCategory(event.target.value)}
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
+              >
+                {categoryConfig.income.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label
+              className="grid gap-2 text-sm font-black text-ink"
+              htmlFor="edit-income-description"
+            >
+              Descripcion
+              <input
+                id="edit-income-description"
+                value={editIncomeDescription}
+                onChange={(event) => setEditIncomeDescription(event.target.value)}
+                placeholder="Ej: Freelance"
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
+              />
+            </label>
+
+            <label className="grid gap-2 text-sm font-black text-ink" htmlFor="edit-income-amount">
+              Monto
+              <input
+                id="edit-income-amount"
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={editIncomeAmount}
+                onChange={(event) => setEditIncomeAmount(event.target.value)}
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
+              />
+            </label>
+
+            <label className="grid gap-2 text-sm font-black text-ink" htmlFor="edit-income-date">
+              Fecha
+              <input
+                id="edit-income-date"
+                type="date"
+                value={editIncomeDate}
+                onChange={(event) => setEditIncomeDate(event.target.value)}
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
+              />
+            </label>
+
+            <button
+              type="submit"
+              className="mt-1 rounded-[22px] bg-leaf px-4 py-4 text-base font-black text-white"
+            >
+              Guardar cambios
+            </button>
+          </form>
+        </Modal>
+      )}
+
+      {activeModal === "editExpense" && (
+        <Modal title="Editar gasto" onClose={() => setActiveModal("none")}>
+          <form onSubmit={saveEditedExpense} className="grid gap-4">
+            <label className="grid gap-2 text-sm font-black text-ink" htmlFor="edit-expense-name">
+              Nombre
+              <input
+                id="edit-expense-name"
+                value={editExpenseName}
+                onChange={(event) => setEditExpenseName(event.target.value)}
+                placeholder="Ej: Uber"
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
+              />
+            </label>
+
+            <label className="grid gap-2 text-sm font-black text-ink" htmlFor="edit-expense-amount">
+              Monto
+              <input
+                id="edit-expense-amount"
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={editExpenseAmount}
+                onChange={(event) => setEditExpenseAmount(event.target.value)}
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
+              />
+            </label>
+
+            <label
+              className="grid gap-2 text-sm font-black text-ink"
+              htmlFor="edit-expense-category"
+            >
+              Categoria
+              <select
+                id="edit-expense-category"
+                value={editExpenseCategory}
+                onChange={(event) => setEditExpenseCategory(event.target.value)}
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
+              >
+                {categoryConfig.expense.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="grid gap-2 text-sm font-black text-ink" htmlFor="edit-expense-date">
+              Fecha
+              <input
+                id="edit-expense-date"
+                type="date"
+                value={editExpenseDate}
+                onChange={(event) => setEditExpenseDate(event.target.value)}
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
+              />
+            </label>
+
+            <button
+              type="submit"
+              className="mt-1 rounded-[22px] bg-ink px-4 py-4 text-base font-black text-white"
+            >
+              Guardar cambios
+            </button>
+          </form>
         </Modal>
       )}
 
