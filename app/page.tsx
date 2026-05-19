@@ -3,12 +3,12 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 
 type Tab = "summary" | "income" | "expenses" | "charts";
-type ModalType = "none" | "menu" | "income" | "expense";
-type IncomeCategory = "Salario" | "Extras" | "Ahorros";
+type ModalType = "none" | "menu" | "income" | "expense" | "categories";
+type CategoryType = "income" | "expense";
 
 type Income = {
   id: string;
-  category: IncomeCategory;
+  category: string;
   description: string;
   amount: number;
   date: string;
@@ -29,6 +29,11 @@ type MonthData = {
 
 type StoredBudget = Record<string, MonthData>;
 
+type CategoryConfig = {
+  income: string[];
+  expense: string[];
+};
+
 type ChartItem = {
   category: string;
   amount: number;
@@ -36,9 +41,15 @@ type ChartItem = {
 };
 
 const STORAGE_KEY = "track-my-spend-months";
+const CATEGORY_STORAGE_KEY = "track-my-spend-categories";
 
-const incomeCategories: IncomeCategory[] = ["Salario", "Extras", "Ahorros"];
-const expenseCategories = ["Comida", "Transporte", "Casa", "Salud", "Ocio", "Otro"];
+const defaultIncomeCategories = ["Salario", "Extras", "Ahorros"];
+const defaultExpenseCategories = ["Comida", "Transporte", "Casa", "Salud", "Ocio", "Otros"];
+
+const fallbackCategories = {
+  income: "Extras",
+  expense: "Otros"
+};
 
 const emptyMonth: MonthData = {
   incomes: [],
@@ -89,6 +100,51 @@ function createId() {
   }
 
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function normalizeCategoryName(value: string) {
+  return value.trim();
+}
+
+function hasCategory(categories: string[], name: string) {
+  const normalizedName = normalizeCategoryName(name).toLowerCase();
+  return categories.some((category) => category.toLowerCase() === normalizedName);
+}
+
+function mergeCategories(...groups: string[][]) {
+  return groups.flat().reduce<string[]>((result, category) => {
+    const normalizedCategory = normalizeCategoryName(category);
+
+    if (normalizedCategory && !hasCategory(result, normalizedCategory)) {
+      result.push(normalizedCategory);
+    }
+
+    return result;
+  }, []);
+}
+
+function getCategoriesFromBudget(storedBudget: StoredBudget): CategoryConfig {
+  const income = Object.values(storedBudget).flatMap((month) =>
+    month.incomes.map((incomeItem) => incomeItem.category)
+  );
+  const expense = Object.values(storedBudget).flatMap((month) =>
+    month.expenses.map((expenseItem) => expenseItem.category)
+  );
+
+  return { income, expense };
+}
+
+function normalizeCategoryConfig(config: Partial<CategoryConfig>, storedBudget: StoredBudget) {
+  const historyCategories = getCategoriesFromBudget(storedBudget);
+
+  return {
+    income: mergeCategories(defaultIncomeCategories, config.income || [], historyCategories.income),
+    expense: mergeCategories(
+      defaultExpenseCategories,
+      config.expense || [],
+      historyCategories.expense
+    )
+  };
 }
 
 function getChartData(records: Array<{ category: string; amount: number }>): ChartItem[] {
@@ -235,17 +291,31 @@ export default function Home() {
   const [activeModal, setActiveModal] = useState<ModalType>("none");
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey);
   const [storedBudget, setStoredBudget] = useState<StoredBudget>({});
+  const [categoryConfig, setCategoryConfig] = useState<CategoryConfig>({
+    income: defaultIncomeCategories,
+    expense: defaultExpenseCategories
+  });
   const [isLoaded, setIsLoaded] = useState(false);
+  const [canPersistBudget, setCanPersistBudget] = useState(true);
+  const [canPersistCategories, setCanPersistCategories] = useState(true);
 
-  const [incomeCategory, setIncomeCategory] = useState<IncomeCategory>("Salario");
+  const [incomeCategory, setIncomeCategory] = useState("Salario");
   const [incomeDescription, setIncomeDescription] = useState("");
   const [incomeAmount, setIncomeAmount] = useState("");
   const [incomeDate, setIncomeDate] = useState(getTodayKey);
 
   const [expenseName, setExpenseName] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
-  const [expenseCategory, setExpenseCategory] = useState(expenseCategories[0]);
+  const [expenseCategory, setExpenseCategory] = useState(defaultExpenseCategories[0]);
   const [expenseDate, setExpenseDate] = useState(getTodayKey);
+  const [newCategoryType, setNewCategoryType] = useState<CategoryType>("expense");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [editingCategory, setEditingCategory] = useState<{
+    type: CategoryType;
+    name: string;
+  } | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState("");
+  const [categoryMessage, setCategoryMessage] = useState("");
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
@@ -253,23 +323,52 @@ export default function Home() {
     }
 
     const savedData = window.localStorage.getItem(STORAGE_KEY);
+    const savedCategories = window.localStorage.getItem(CATEGORY_STORAGE_KEY);
+    let loadedBudget: StoredBudget = {};
+    let loadedCategories: Partial<CategoryConfig> = {};
 
     if (savedData) {
       try {
-        setStoredBudget(JSON.parse(savedData) as StoredBudget);
+        loadedBudget = JSON.parse(savedData) as StoredBudget;
       } catch {
-        window.localStorage.removeItem(STORAGE_KEY);
+        setCanPersistBudget(false);
       }
     }
 
+    if (savedCategories) {
+      try {
+        loadedCategories = JSON.parse(savedCategories) as Partial<CategoryConfig>;
+      } catch {
+        setCanPersistCategories(false);
+      }
+    }
+
+    setStoredBudget(loadedBudget);
+    setCategoryConfig(normalizeCategoryConfig(loadedCategories, loadedBudget));
     setIsLoaded(true);
   }, []);
 
   useEffect(() => {
-    if (isLoaded) {
+    if (isLoaded && canPersistBudget) {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(storedBudget));
     }
-  }, [storedBudget, isLoaded]);
+  }, [storedBudget, isLoaded, canPersistBudget]);
+
+  useEffect(() => {
+    if (isLoaded && canPersistCategories) {
+      window.localStorage.setItem(CATEGORY_STORAGE_KEY, JSON.stringify(categoryConfig));
+    }
+  }, [categoryConfig, isLoaded, canPersistCategories]);
+
+  useEffect(() => {
+    if (!hasCategory(categoryConfig.income, incomeCategory)) {
+      setIncomeCategory(categoryConfig.income[0] || fallbackCategories.income);
+    }
+
+    if (!hasCategory(categoryConfig.expense, expenseCategory)) {
+      setExpenseCategory(categoryConfig.expense[0] || fallbackCategories.expense);
+    }
+  }, [categoryConfig, expenseCategory, incomeCategory]);
 
   useEffect(() => {
     document.body.style.overflow = activeModal === "none" ? "" : "hidden";
@@ -327,7 +426,7 @@ export default function Home() {
       incomes: [newIncome, ...monthData.incomes]
     });
 
-    setIncomeCategory("Salario");
+    setIncomeCategory(categoryConfig.income[0] || fallbackCategories.income);
     setIncomeDescription("");
     setIncomeAmount("");
     setIncomeDate(getTodayKey());
@@ -366,7 +465,7 @@ export default function Home() {
 
     setExpenseName("");
     setExpenseAmount("");
-    setExpenseCategory(expenseCategories[0]);
+    setExpenseCategory(categoryConfig.expense[0] || fallbackCategories.expense);
     setExpenseDate(getTodayKey());
     setSelectedTab("expenses");
     setActiveModal("none");
@@ -377,6 +476,170 @@ export default function Home() {
       ...monthData,
       expenses: monthData.expenses.filter((expense) => expense.id !== id)
     });
+  }
+
+  function addCategory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const normalizedName = normalizeCategoryName(newCategoryName);
+
+    if (!normalizedName) {
+      setCategoryMessage("El nombre no puede estar vacio.");
+      return;
+    }
+
+    if (hasCategory(categoryConfig[newCategoryType], normalizedName)) {
+      setCategoryMessage("Esa categoria ya existe.");
+      return;
+    }
+
+    setCategoryConfig((current) => ({
+      ...current,
+      [newCategoryType]: [...current[newCategoryType], normalizedName]
+    }));
+    setNewCategoryName("");
+    setCategoryMessage("Categoria agregada.");
+  }
+
+  function startEditingCategory(type: CategoryType, name: string) {
+    setEditingCategory({ type, name });
+    setEditingCategoryName(name);
+    setCategoryMessage("");
+  }
+
+  function saveEditedCategory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!editingCategory) {
+      return;
+    }
+
+    const normalizedName = normalizeCategoryName(editingCategoryName);
+
+    if (!normalizedName) {
+      setCategoryMessage("El nombre no puede estar vacio.");
+      return;
+    }
+
+    const categoryList = categoryConfig[editingCategory.type];
+    const duplicateExists = categoryList.some(
+      (category) =>
+        category.toLowerCase() !== editingCategory.name.toLowerCase() &&
+        category.toLowerCase() === normalizedName.toLowerCase()
+    );
+
+    if (duplicateExists) {
+      setCategoryMessage("Esa categoria ya existe.");
+      return;
+    }
+
+    setCategoryConfig((current) => ({
+      ...current,
+      [editingCategory.type]: current[editingCategory.type].map((category) =>
+        category.toLowerCase() === editingCategory.name.toLowerCase() ? normalizedName : category
+      )
+    }));
+
+    setStoredBudget((current) => {
+      const nextBudget: StoredBudget = {};
+
+      Object.entries(current).forEach(([monthKey, data]) => {
+        nextBudget[monthKey] = {
+          incomes:
+            editingCategory.type === "income"
+              ? data.incomes.map((income) => ({
+                  ...income,
+                  category:
+                    income.category.toLowerCase() === editingCategory.name.toLowerCase()
+                      ? normalizedName
+                      : income.category
+                }))
+              : data.incomes,
+          expenses:
+            editingCategory.type === "expense"
+              ? data.expenses.map((expense) => ({
+                  ...expense,
+                  category:
+                    expense.category.toLowerCase() === editingCategory.name.toLowerCase()
+                      ? normalizedName
+                      : expense.category
+                }))
+              : data.expenses
+        };
+      });
+
+      return nextBudget;
+    });
+
+    if (
+      editingCategory.type === "income" &&
+      incomeCategory.toLowerCase() === editingCategory.name.toLowerCase()
+    ) {
+      setIncomeCategory(normalizedName);
+    }
+
+    if (
+      editingCategory.type === "expense" &&
+      expenseCategory.toLowerCase() === editingCategory.name.toLowerCase()
+    ) {
+      setExpenseCategory(normalizedName);
+    }
+
+    setEditingCategory(null);
+    setEditingCategoryName("");
+    setCategoryMessage("Categoria actualizada.");
+  }
+
+  function deleteCategory(type: CategoryType, name: string) {
+    const fallback = fallbackCategories[type];
+
+    setCategoryConfig((current) => ({
+      ...current,
+      [type]: mergeCategories(
+        current[type].filter((category) => category.toLowerCase() !== name.toLowerCase()),
+        [fallback]
+      )
+    }));
+
+    setStoredBudget((current) => {
+      const nextBudget: StoredBudget = {};
+
+      Object.entries(current).forEach(([monthKey, data]) => {
+        nextBudget[monthKey] = {
+          incomes:
+            type === "income"
+              ? data.incomes.map((income) => ({
+                  ...income,
+                  category:
+                    income.category.toLowerCase() === name.toLowerCase() ? fallback : income.category
+                }))
+              : data.incomes,
+          expenses:
+            type === "expense"
+              ? data.expenses.map((expense) => ({
+                  ...expense,
+                  category:
+                    expense.category.toLowerCase() === name.toLowerCase()
+                      ? fallback
+                      : expense.category
+                }))
+              : data.expenses
+        };
+      });
+
+      return nextBudget;
+    });
+
+    if (type === "income" && incomeCategory.toLowerCase() === name.toLowerCase()) {
+      setIncomeCategory(fallback);
+    }
+
+    if (type === "expense" && expenseCategory.toLowerCase() === name.toLowerCase()) {
+      setExpenseCategory(fallback);
+    }
+
+    setEditingCategory(null);
+    setCategoryMessage(`Movimientos reasignados a ${fallback}.`);
   }
 
   const tabs: Array<{ id: Tab; label: string }> = [
@@ -646,6 +909,132 @@ export default function Home() {
                 Comida, transporte, casa y mas
               </span>
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveModal("categories")}
+              className="rounded-[24px] bg-paper p-5 text-left"
+            >
+              <span className="block text-lg font-black text-ink">Editar categorias</span>
+              <span className="mt-1 block text-sm font-semibold text-ink/55">
+                Agrega, renombra o elimina categorias
+              </span>
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {activeModal === "categories" && (
+        <Modal title="Editar categorias" onClose={() => setActiveModal("none")}>
+          <div className="max-h-[75vh] overflow-y-auto pr-1">
+            <form onSubmit={addCategory} className="grid gap-3 rounded-[24px] bg-paper p-4">
+              <label className="grid gap-2 text-sm font-black text-ink" htmlFor="category-type">
+                Tipo
+                <select
+                  id="category-type"
+                  value={newCategoryType}
+                  onChange={(event) => setNewCategoryType(event.target.value as CategoryType)}
+                  className="rounded-[18px] border border-ink/10 bg-white px-4 py-3 text-base font-bold outline-none focus:border-leaf"
+                >
+                  <option value="income">Ingresos</option>
+                  <option value="expense">Gastos</option>
+                </select>
+              </label>
+
+              <label className="grid gap-2 text-sm font-black text-ink" htmlFor="category-name">
+                Nueva categoria
+                <input
+                  id="category-name"
+                  value={newCategoryName}
+                  onChange={(event) => setNewCategoryName(event.target.value)}
+                  placeholder="Ej: Mascotas"
+                  className="rounded-[18px] border border-ink/10 bg-white px-4 py-3 text-base font-bold outline-none focus:border-leaf"
+                />
+              </label>
+
+              <button
+                type="submit"
+                className="rounded-[20px] bg-leaf px-4 py-3 text-base font-black text-white"
+              >
+                Agregar categoria
+              </button>
+            </form>
+
+            {editingCategory && (
+              <form
+                onSubmit={saveEditedCategory}
+                className="mt-4 grid gap-3 rounded-[24px] bg-mint p-4"
+              >
+                <p className="text-sm font-black text-ink">
+                  Editando {editingCategory.name}
+                </p>
+                <input
+                  value={editingCategoryName}
+                  onChange={(event) => setEditingCategoryName(event.target.value)}
+                  className="rounded-[18px] border border-leaf/20 bg-white px-4 py-3 text-base font-bold outline-none focus:border-leaf"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingCategory(null);
+                      setEditingCategoryName("");
+                    }}
+                    className="rounded-[18px] bg-white px-4 py-3 text-sm font-black text-ink"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded-[18px] bg-leaf px-4 py-3 text-sm font-black text-white"
+                  >
+                    Guardar
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {categoryMessage && (
+              <p className="mt-4 rounded-[18px] bg-paper px-4 py-3 text-sm font-bold text-ink/70">
+                {categoryMessage}
+              </p>
+            )}
+
+            <div className="mt-5 grid gap-5">
+              {([
+                ["income", "Ingresos", categoryConfig.income],
+                ["expense", "Gastos", categoryConfig.expense]
+              ] as Array<[CategoryType, string, string[]]>).map(([type, title, categories]) => (
+                <section key={type}>
+                  <h3 className="text-base font-black text-ink">{title}</h3>
+                  <ul className="mt-3 grid gap-2">
+                    {categories.map((category) => (
+                      <li
+                        key={`${type}-${category}`}
+                        className="flex items-center justify-between gap-3 rounded-[20px] bg-paper p-3"
+                      >
+                        <span className="font-black text-ink">{category}</span>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startEditingCategory(type, category)}
+                            className="rounded-full bg-white px-3 py-2 text-xs font-black text-leaf"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteCategory(type, category)}
+                            className="rounded-full bg-coral/10 px-3 py-2 text-xs font-black text-coral"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
           </div>
         </Modal>
       )}
@@ -658,10 +1047,10 @@ export default function Home() {
               <select
                 id="income-category"
                 value={incomeCategory}
-                onChange={(event) => setIncomeCategory(event.target.value as IncomeCategory)}
+                onChange={(event) => setIncomeCategory(event.target.value)}
                 className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
               >
-                {incomeCategories.map((category) => (
+                {categoryConfig.income.map((category) => (
                   <option key={category} value={category}>
                     {category}
                   </option>
@@ -753,7 +1142,7 @@ export default function Home() {
                 onChange={(event) => setExpenseCategory(event.target.value)}
                 className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
               >
-                {expenseCategories.map((category) => (
+                {categoryConfig.expense.map((category) => (
                   <option key={category} value={category}>
                     {category}
                   </option>
