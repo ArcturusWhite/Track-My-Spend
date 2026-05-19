@@ -1,8 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 
 type Tab = "summary" | "income" | "expenses" | "charts";
+type ModalType = "none" | "menu" | "income" | "expense";
 type IncomeCategory = "Salario" | "Extras" | "Ahorros";
 
 type Income = {
@@ -74,8 +75,7 @@ function formatMonth(monthKey: string) {
   }
 
   const [year, month] = monthKey.split("-").map(Number);
-  const date = new Date(year, month - 1, 1);
-  return monthFormatter.format(date);
+  return monthFormatter.format(new Date(year, month - 1, 1));
 }
 
 function formatDate(dateKey: string) {
@@ -108,52 +108,117 @@ function getChartData(records: Array<{ category: string; amount: number }>): Cha
     .sort((a, b) => b.amount - a.amount);
 }
 
-function StatCard({
+function Card({
+  children,
+  className = ""
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={`rounded-[28px] border border-ink/5 bg-white p-5 shadow-sm ${className}`}>
+      {children}
+    </section>
+  );
+}
+
+function MetricCard({
   label,
   value,
-  tone = "light"
+  tone
 }: {
   label: string;
   value: string;
-  tone?: "light" | "dark" | "green";
+  tone: "income" | "expense";
 }) {
   const toneClass =
-    tone === "dark"
-      ? "bg-ink text-white"
-      : tone === "green"
-        ? "bg-leaf text-white"
-        : "bg-white text-ink";
+    tone === "income"
+      ? "border-leaf/10 bg-mint text-leaf"
+      : "border-coral/10 bg-coral/10 text-coral";
 
   return (
-    <article className={`rounded-2xl p-4 shadow-sm ${toneClass}`}>
-      <p className="text-xs font-semibold uppercase tracking-wide opacity-70">{label}</p>
-      <p className="mt-2 break-words text-2xl font-bold">{value}</p>
+    <article className={`rounded-[24px] border p-4 ${toneClass}`}>
+      <p className="text-xs font-bold uppercase tracking-wide opacity-70">{label}</p>
+      <p className="mt-2 break-words text-xl font-black">{value}</p>
     </article>
   );
 }
 
-function ChartList({ title, data }: { title: string; data: ChartItem[] }) {
+function EmptyState({ children }: { children: ReactNode }) {
   return (
-    <section className="rounded-2xl bg-white p-4 shadow-sm">
-      <h2 className="text-lg font-bold text-ink">{title}</h2>
+    <p className="rounded-[22px] bg-paper p-4 text-sm leading-6 text-ink/60">{children}</p>
+  );
+}
+
+function Modal({
+  title,
+  children,
+  onClose
+}: {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-ink/35 px-3 pb-3 backdrop-blur-sm">
+      <section className="mx-auto w-full max-w-md rounded-[32px] bg-white p-5 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-xl font-black text-ink">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-11 w-11 place-items-center rounded-full bg-paper text-xl font-black text-ink"
+            aria-label="Cerrar modal"
+          >
+            x
+          </button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function ChartList({
+  title,
+  data,
+  accent = "green"
+}: {
+  title: string;
+  data: ChartItem[];
+  accent?: "green" | "coral";
+}) {
+  const barClass = accent === "green" ? "bg-leaf" : "bg-coral";
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-black text-ink">{title}</h2>
+        <span className="rounded-full bg-paper px-3 py-1 text-xs font-bold text-ink/60">
+          {data.length}
+        </span>
+      </div>
 
       {data.length === 0 ? (
-        <p className="mt-4 rounded-xl bg-mint p-4 text-sm leading-6 text-ink/70">
-          No hay datos suficientes para mostrar esta gráfica.
-        </p>
+        <div className="mt-4">
+          <EmptyState>No hay datos suficientes para mostrar esta grafica.</EmptyState>
+        </div>
       ) : (
-        <ul className="mt-4 space-y-4">
+        <ul className="mt-5 space-y-5">
           {data.map((item) => (
             <li key={item.category}>
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="font-semibold text-ink">{item.category}</p>
-                <p className="text-right text-sm font-bold text-ink">
-                  {item.percentage.toFixed(0)}% · {formatCurrency(item.amount)}
-                </p>
+              <div className="mb-2 flex items-end justify-between gap-3">
+                <div>
+                  <p className="font-bold text-ink">{item.category}</p>
+                  <p className="mt-1 text-xs font-semibold text-ink/50">
+                    {item.percentage.toFixed(0)}% del total
+                  </p>
+                </div>
+                <p className="text-sm font-black text-ink">{formatCurrency(item.amount)}</p>
               </div>
-              <div className="h-3 overflow-hidden rounded-full bg-mint">
+              <div className="h-4 overflow-hidden rounded-full bg-paper">
                 <div
-                  className="h-full rounded-full bg-leaf"
+                  className={`h-full rounded-full ${barClass}`}
                   style={{ width: `${item.percentage}%` }}
                 />
               </div>
@@ -161,12 +226,13 @@ function ChartList({ title, data }: { title: string; data: ChartItem[] }) {
           ))}
         </ul>
       )}
-    </section>
+    </Card>
   );
 }
 
 export default function Home() {
   const [selectedTab, setSelectedTab] = useState<Tab>("summary");
+  const [activeModal, setActiveModal] = useState<ModalType>("none");
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey);
   const [storedBudget, setStoredBudget] = useState<StoredBudget>({});
   const [isLoaded, setIsLoaded] = useState(false);
@@ -205,6 +271,14 @@ export default function Home() {
     }
   }, [storedBudget, isLoaded]);
 
+  useEffect(() => {
+    document.body.style.overflow = activeModal === "none" ? "" : "hidden";
+
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [activeModal]);
+
   const monthData = storedBudget[selectedMonth] || emptyMonth;
 
   const totalIncome = useMemo(
@@ -222,6 +296,7 @@ export default function Home() {
 
   const incomeChartData = useMemo(() => getChartData(monthData.incomes), [monthData.incomes]);
   const expenseChartData = useMemo(() => getChartData(monthData.expenses), [monthData.expenses]);
+  const topCategories = expenseChartData.slice(0, 3);
 
   function updateCurrentMonth(nextData: MonthData) {
     setStoredBudget((current) => ({
@@ -256,6 +331,8 @@ export default function Home() {
     setIncomeDescription("");
     setIncomeAmount("");
     setIncomeDate(getTodayKey());
+    setSelectedTab("income");
+    setActiveModal("none");
   }
 
   function deleteIncome(id: string) {
@@ -291,6 +368,8 @@ export default function Home() {
     setExpenseAmount("");
     setExpenseCategory(expenseCategories[0]);
     setExpenseDate(getTodayKey());
+    setSelectedTab("expenses");
+    setActiveModal("none");
   }
 
   function deleteExpense(id: string) {
@@ -301,37 +380,39 @@ export default function Home() {
   }
 
   const tabs: Array<{ id: Tab; label: string }> = [
-    { id: "summary", label: "Resumen" },
+    { id: "summary", label: "Inicio" },
     { id: "income", label: "Ingresos" },
-    { id: "expenses", label: "Egresos" },
-    { id: "charts", label: "Gráficas" }
+    { id: "expenses", label: "Gastos" },
+    { id: "charts", label: "Graficas" }
   ];
 
   return (
-    <main className="min-h-screen bg-paper px-4 pb-28 pt-5">
+    <main className="min-h-screen bg-paper px-4 pb-32 pt-4">
       <section className="mx-auto flex w-full max-w-md flex-col gap-5">
-        <header className="rounded-3xl bg-ink p-5 text-white shadow-sm">
-          <p className="text-sm font-semibold uppercase tracking-wide text-mint">
-            Track My Spend
-          </p>
-          <div className="mt-4 flex flex-col gap-3">
+        <header className="rounded-[32px] bg-leaf p-5 text-white shadow-sm">
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold">Tu mes financiero</h1>
-              <p className="mt-2 text-sm leading-6 text-white/70">
-                Controla ingresos, egresos y saldo por cada mes.
-              </p>
+              <p className="text-sm font-bold text-white/70">Track My Spend</p>
+              <h1 className="mt-1 text-3xl font-black">Inicio</h1>
             </div>
-            <label className="text-sm font-semibold text-white" htmlFor="month">
-              Mes
+            <label className="rounded-2xl bg-white/15 px-3 py-2" htmlFor="month">
+              <span className="block text-xs font-bold text-white/70">Mes</span>
+              <input
+                id="month"
+                type="month"
+                value={selectedMonth}
+                onChange={(event) => setSelectedMonth(event.target.value || getCurrentMonthKey())}
+                className="w-[8.5rem] bg-transparent text-sm font-black text-white outline-none"
+              />
             </label>
-            <input
-              id="month"
-              type="month"
-              value={selectedMonth}
-              onChange={(event) => setSelectedMonth(event.target.value || getCurrentMonthKey())}
-              className="w-full rounded-2xl border border-white/10 bg-white px-4 py-3 text-base font-bold text-ink outline-none focus:border-mint"
-            />
-            <p className="text-sm font-semibold capitalize text-mint">
+          </div>
+
+          <div className="mt-8">
+            <p className="text-sm font-bold text-white/70">Saldo disponible</p>
+            <p className="mt-2 break-words text-5xl font-black leading-tight">
+              {formatCurrency(remainingBalance)}
+            </p>
+            <p className="mt-2 text-sm font-bold capitalize text-white/70">
               {formatMonth(selectedMonth)}
             </p>
           </div>
@@ -340,60 +421,245 @@ export default function Home() {
         {selectedTab === "summary" && (
           <>
             <section className="grid grid-cols-2 gap-3">
-              <StatCard label="Ingresos" value={formatCurrency(totalIncome)} tone="green" />
-              <StatCard label="Egresos" value={formatCurrency(totalSpent)} tone="dark" />
-              <StatCard label="Saldo" value={formatCurrency(remainingBalance)} />
-              <StatCard label="Usado" value={`${usedPercentage.toFixed(0)}%`} />
+              <MetricCard label="Ingresos" value={formatCurrency(totalIncome)} tone="income" />
+              <MetricCard label="Gastos" value={formatCurrency(totalSpent)} tone="expense" />
             </section>
 
-            <section className="rounded-2xl bg-white p-4 shadow-sm">
+            <Card>
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-ink">Presupuesto usado</p>
-                <p className="text-sm font-bold text-leaf">{usedPercentage.toFixed(0)}%</p>
+                <div>
+                  <h2 className="text-lg font-black text-ink">Uso del presupuesto</h2>
+                  <p className="mt-1 text-sm font-semibold text-ink/50">
+                    {usedPercentage.toFixed(0)}% usado este mes
+                  </p>
+                </div>
+                <span className="rounded-full bg-mint px-3 py-2 text-sm font-black text-leaf">
+                  {formatCurrency(totalIncome)}
+                </span>
               </div>
-              <div className="mt-3 h-4 overflow-hidden rounded-full bg-mint">
+              <div className="mt-5 h-5 overflow-hidden rounded-full bg-paper">
                 <div
                   className="h-full rounded-full bg-coral transition-all"
                   style={{ width: `${usedPercentage}%` }}
                 />
               </div>
-            </section>
+            </Card>
 
-            <section className="rounded-2xl bg-white p-4 shadow-sm">
-              <h2 className="text-lg font-bold text-ink">Movimiento del mes</h2>
-              <div className="mt-4 grid grid-cols-2 gap-3">
+            <Card>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-lg font-black text-ink">Categorias principales</h2>
                 <button
                   type="button"
-                  onClick={() => setSelectedTab("income")}
-                  className="rounded-2xl bg-leaf px-4 py-3 font-bold text-white"
+                  onClick={() => setSelectedTab("charts")}
+                  className="rounded-full bg-paper px-3 py-2 text-xs font-black text-leaf"
                 >
-                  Agregar ingreso
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedTab("expenses")}
-                  className="rounded-2xl bg-ink px-4 py-3 font-bold text-white"
-                >
-                  Agregar egreso
+                  Ver todo
                 </button>
               </div>
-            </section>
+
+              {topCategories.length === 0 ? (
+                <div className="mt-4">
+                  <EmptyState>Agrega gastos para ver un resumen rapido por categoria.</EmptyState>
+                </div>
+              ) : (
+                <ul className="mt-4 space-y-3">
+                  {topCategories.map((item) => (
+                    <li
+                      key={item.category}
+                      className="flex items-center justify-between rounded-[22px] bg-paper p-4"
+                    >
+                      <div>
+                        <p className="font-black text-ink">{item.category}</p>
+                        <p className="mt-1 text-xs font-bold text-ink/50">
+                          {item.percentage.toFixed(0)}% de gastos
+                        </p>
+                      </div>
+                      <p className="text-sm font-black text-ink">{formatCurrency(item.amount)}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
           </>
         )}
 
         {selectedTab === "income" && (
-          <>
-            <form onSubmit={addIncome} className="rounded-2xl bg-white p-4 shadow-sm">
-              <h2 className="text-lg font-bold text-ink">Nuevo ingreso</h2>
+          <Card>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-black text-ink">Ingresos</h2>
+                <p className="mt-1 text-sm font-semibold text-ink/50">
+                  {monthData.incomes.length} registros este mes
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal("income")}
+                className="rounded-full bg-leaf px-4 py-3 text-sm font-black text-white"
+              >
+                Agregar
+              </button>
+            </div>
 
-              <label className="mt-4 block text-sm font-semibold text-ink" htmlFor="income-category">
-                Categoría
-              </label>
+            {monthData.incomes.length === 0 ? (
+              <div className="mt-5">
+                <EmptyState>Agrega ingresos para calcular el presupuesto mensual.</EmptyState>
+              </div>
+            ) : (
+              <ul className="mt-5 space-y-3">
+                {monthData.incomes.map((income) => (
+                  <li
+                    key={income.id}
+                    className="flex items-center justify-between gap-3 rounded-[24px] bg-mint p-4"
+                  >
+                    <div>
+                      <p className="font-black text-ink">{income.category}</p>
+                      <p className="mt-1 text-xs font-bold text-ink/50">
+                        {income.description || "Sin descripcion"} - {formatDate(income.date)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-black text-leaf">{formatCurrency(income.amount)}</p>
+                      <button
+                        type="button"
+                        onClick={() => deleteIncome(income.id)}
+                        className="mt-1 text-xs font-black text-coral"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        )}
+
+        {selectedTab === "expenses" && (
+          <Card>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-black text-ink">Gastos</h2>
+                <p className="mt-1 text-sm font-semibold text-ink/50">
+                  {monthData.expenses.length} registros este mes
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveModal("expense")}
+                className="rounded-full bg-ink px-4 py-3 text-sm font-black text-white"
+              >
+                Agregar
+              </button>
+            </div>
+
+            {monthData.expenses.length === 0 ? (
+              <div className="mt-5">
+                <EmptyState>Todavia no hay gastos para este mes.</EmptyState>
+              </div>
+            ) : (
+              <ul className="mt-5 space-y-3">
+                {monthData.expenses.map((expense) => (
+                  <li
+                    key={expense.id}
+                    className="flex items-center justify-between gap-3 rounded-[24px] bg-paper p-4"
+                  >
+                    <div>
+                      <p className="font-black text-ink">{expense.name}</p>
+                      <p className="mt-1 text-xs font-bold text-ink/50">
+                        {expense.category} - {formatDate(expense.date)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-black text-ink">{formatCurrency(expense.amount)}</p>
+                      <button
+                        type="button"
+                        onClick={() => deleteExpense(expense.id)}
+                        className="mt-1 text-xs font-black text-coral"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        )}
+
+        {selectedTab === "charts" && (
+          <>
+            <ChartList title="Gastos por categoria" data={expenseChartData} accent="coral" />
+            <ChartList title="Ingresos por categoria" data={incomeChartData} />
+          </>
+        )}
+      </section>
+
+      <button
+        type="button"
+        onClick={() => setActiveModal("menu")}
+        className="fixed bottom-24 left-1/2 z-40 grid h-16 w-16 -translate-x-1/2 place-items-center rounded-full bg-leaf text-4xl font-light leading-none text-white shadow-xl shadow-leaf/30"
+        aria-label="Agregar movimiento"
+      >
+        +
+      </button>
+
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-ink/5 bg-white/95 px-3 pb-4 pt-3 shadow-lg backdrop-blur">
+        <div className="mx-auto grid max-w-md grid-cols-4 gap-2">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setSelectedTab(tab.id)}
+              className={`rounded-[20px] px-2 py-3 text-xs font-black transition ${
+                selectedTab === tab.id
+                  ? "bg-leaf text-white shadow-sm"
+                  : "bg-paper text-ink/55 hover:text-ink"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {activeModal === "menu" && (
+        <Modal title="Agregar movimiento" onClose={() => setActiveModal("none")}>
+          <div className="grid gap-3">
+            <button
+              type="button"
+              onClick={() => setActiveModal("income")}
+              className="rounded-[24px] bg-mint p-5 text-left"
+            >
+              <span className="block text-lg font-black text-leaf">Agregar ingreso</span>
+              <span className="mt-1 block text-sm font-semibold text-ink/55">
+                Salario, extras o ahorros
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveModal("expense")}
+              className="rounded-[24px] bg-coral/10 p-5 text-left"
+            >
+              <span className="block text-lg font-black text-coral">Agregar gasto</span>
+              <span className="mt-1 block text-sm font-semibold text-ink/55">
+                Comida, transporte, casa y mas
+              </span>
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {activeModal === "income" && (
+        <Modal title="Nuevo ingreso" onClose={() => setActiveModal("none")}>
+          <form onSubmit={addIncome} className="grid gap-4">
+            <label className="grid gap-2 text-sm font-black text-ink" htmlFor="income-category">
+              Categoria
               <select
                 id="income-category"
                 value={incomeCategory}
                 onChange={(event) => setIncomeCategory(event.target.value as IncomeCategory)}
-                className="mt-2 w-full rounded-2xl border border-ink/10 bg-paper px-4 py-3 text-base outline-none focus:border-leaf"
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
               >
                 {incomeCategories.map((category) => (
                   <option key={category} value={category}>
@@ -401,24 +667,21 @@ export default function Home() {
                   </option>
                 ))}
               </select>
+            </label>
 
-              <label
-                className="mt-4 block text-sm font-semibold text-ink"
-                htmlFor="income-description"
-              >
-                Descripción opcional
-              </label>
+            <label className="grid gap-2 text-sm font-black text-ink" htmlFor="income-description">
+              Descripcion opcional
               <input
                 id="income-description"
                 value={incomeDescription}
                 onChange={(event) => setIncomeDescription(event.target.value)}
                 placeholder="Ej: Pago principal"
-                className="mt-2 w-full rounded-2xl border border-ink/10 bg-paper px-4 py-3 text-base outline-none focus:border-leaf"
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
               />
+            </label>
 
-              <label className="mt-4 block text-sm font-semibold text-ink" htmlFor="income-amount">
-                Monto
-              </label>
+            <label className="grid gap-2 text-sm font-black text-ink" htmlFor="income-amount">
+              Monto
               <input
                 id="income-amount"
                 type="number"
@@ -428,89 +691,47 @@ export default function Home() {
                 value={incomeAmount}
                 onChange={(event) => setIncomeAmount(event.target.value)}
                 placeholder="Ej: 1250.75"
-                className="mt-2 w-full rounded-2xl border border-ink/10 bg-paper px-4 py-3 text-base outline-none focus:border-leaf"
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
               />
+            </label>
 
-              <label className="mt-4 block text-sm font-semibold text-ink" htmlFor="income-date">
-                Fecha
-              </label>
+            <label className="grid gap-2 text-sm font-black text-ink" htmlFor="income-date">
+              Fecha
               <input
                 id="income-date"
                 type="date"
                 value={incomeDate}
                 onChange={(event) => setIncomeDate(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-ink/10 bg-paper px-4 py-3 text-base outline-none focus:border-leaf"
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
               />
+            </label>
 
-              <button
-                type="submit"
-                className="mt-5 w-full rounded-2xl bg-leaf px-4 py-3 text-base font-bold text-white transition hover:bg-ink"
-              >
-                Guardar ingreso
-              </button>
-            </form>
+            <button
+              type="submit"
+              className="mt-1 rounded-[22px] bg-leaf px-4 py-4 text-base font-black text-white"
+            >
+              Guardar ingreso
+            </button>
+          </form>
+        </Modal>
+      )}
 
-            <section className="rounded-2xl bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-ink">Ingresos</h2>
-                <p className="text-sm text-ink/60">{monthData.incomes.length} registros</p>
-              </div>
-
-              {monthData.incomes.length === 0 ? (
-                <p className="mt-4 rounded-xl bg-mint p-4 text-sm leading-6 text-ink/70">
-                  Agrega tus ingresos para calcular automáticamente el presupuesto del mes.
-                </p>
-              ) : (
-                <ul className="mt-4 space-y-3">
-                  {monthData.incomes.map((income) => (
-                    <li
-                      key={income.id}
-                      className="flex items-center justify-between gap-3 rounded-2xl bg-paper p-3"
-                    >
-                      <div>
-                        <p className="font-semibold text-ink">{income.category}</p>
-                        <p className="mt-1 text-xs text-ink/60">
-                          {income.description || "Sin descripción"} ·{" "}
-                          {formatDate(income.date)}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-bold text-leaf">{formatCurrency(income.amount)}</p>
-                        <button
-                          type="button"
-                          onClick={() => deleteIncome(income.id)}
-                          className="mt-1 text-xs font-semibold text-coral"
-                        >
-                          Eliminar
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </>
-        )}
-
-        {selectedTab === "expenses" && (
-          <>
-            <form onSubmit={addExpense} className="rounded-2xl bg-white p-4 shadow-sm">
-              <h2 className="text-lg font-bold text-ink">Nuevo egreso</h2>
-
-              <label className="mt-4 block text-sm font-semibold text-ink" htmlFor="expense-name">
-                Nombre
-              </label>
+      {activeModal === "expense" && (
+        <Modal title="Nuevo gasto" onClose={() => setActiveModal("none")}>
+          <form onSubmit={addExpense} className="grid gap-4">
+            <label className="grid gap-2 text-sm font-black text-ink" htmlFor="expense-name">
+              Nombre
               <input
                 id="expense-name"
                 value={expenseName}
                 onChange={(event) => setExpenseName(event.target.value)}
                 placeholder="Ej: Mercado"
-                className="mt-2 w-full rounded-2xl border border-ink/10 bg-paper px-4 py-3 text-base outline-none focus:border-leaf"
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
               />
+            </label>
 
-              <label className="mt-4 block text-sm font-semibold text-ink" htmlFor="expense-amount">
-                Monto
-              </label>
+            <label className="grid gap-2 text-sm font-black text-ink" htmlFor="expense-amount">
+              Monto
               <input
                 id="expense-amount"
                 type="number"
@@ -520,20 +741,17 @@ export default function Home() {
                 value={expenseAmount}
                 onChange={(event) => setExpenseAmount(event.target.value)}
                 placeholder="Ej: 85.50"
-                className="mt-2 w-full rounded-2xl border border-ink/10 bg-paper px-4 py-3 text-base outline-none focus:border-leaf"
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
               />
+            </label>
 
-              <label
-                className="mt-4 block text-sm font-semibold text-ink"
-                htmlFor="expense-category"
-              >
-                Categoría
-              </label>
+            <label className="grid gap-2 text-sm font-black text-ink" htmlFor="expense-category">
+              Categoria
               <select
                 id="expense-category"
                 value={expenseCategory}
                 onChange={(event) => setExpenseCategory(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-ink/10 bg-paper px-4 py-3 text-base outline-none focus:border-leaf"
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
               >
                 {expenseCategories.map((category) => (
                   <option key={category} value={category}>
@@ -541,94 +759,28 @@ export default function Home() {
                   </option>
                 ))}
               </select>
+            </label>
 
-              <label className="mt-4 block text-sm font-semibold text-ink" htmlFor="expense-date">
-                Fecha
-              </label>
+            <label className="grid gap-2 text-sm font-black text-ink" htmlFor="expense-date">
+              Fecha
               <input
                 id="expense-date"
                 type="date"
                 value={expenseDate}
                 onChange={(event) => setExpenseDate(event.target.value)}
-                className="mt-2 w-full rounded-2xl border border-ink/10 bg-paper px-4 py-3 text-base outline-none focus:border-leaf"
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
               />
+            </label>
 
-              <button
-                type="submit"
-                className="mt-5 w-full rounded-2xl bg-ink px-4 py-3 text-base font-bold text-white transition hover:bg-leaf"
-              >
-                Guardar egreso
-              </button>
-            </form>
-
-            <section className="rounded-2xl bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-ink">Egresos</h2>
-                <p className="text-sm text-ink/60">{monthData.expenses.length} registros</p>
-              </div>
-
-              {monthData.expenses.length === 0 ? (
-                <p className="mt-4 rounded-xl bg-mint p-4 text-sm leading-6 text-ink/70">
-                  Todavía no hay egresos para este mes.
-                </p>
-              ) : (
-                <ul className="mt-4 space-y-3">
-                  {monthData.expenses.map((expense) => (
-                    <li
-                      key={expense.id}
-                      className="flex items-center justify-between gap-3 rounded-2xl bg-paper p-3"
-                    >
-                      <div>
-                        <p className="font-semibold text-ink">{expense.name}</p>
-                        <p className="mt-1 text-xs text-ink/60">
-                          {expense.category} ·{" "}
-                          {formatDate(expense.date)}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-bold text-ink">{formatCurrency(expense.amount)}</p>
-                        <button
-                          type="button"
-                          onClick={() => deleteExpense(expense.id)}
-                          className="mt-1 text-xs font-semibold text-coral"
-                        >
-                          Eliminar
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </>
-        )}
-
-        {selectedTab === "charts" && (
-          <>
-            <ChartList title="Egresos por categoría" data={expenseChartData} />
-            <ChartList title="Ingresos por categoría" data={incomeChartData} />
-          </>
-        )}
-      </section>
-
-      <nav className="fixed inset-x-0 bottom-0 border-t border-ink/10 bg-white/95 px-3 py-3 shadow-lg backdrop-blur">
-        <div className="mx-auto grid max-w-md grid-cols-4 gap-2">
-          {tabs.map((tab) => (
             <button
-              key={tab.id}
-              type="button"
-              onClick={() => setSelectedTab(tab.id)}
-              className={`rounded-2xl px-2 py-3 text-xs font-bold transition ${
-                selectedTab === tab.id
-                  ? "bg-leaf text-white"
-                  : "bg-paper text-ink/70 hover:text-ink"
-              }`}
+              type="submit"
+              className="mt-1 rounded-[22px] bg-ink px-4 py-4 text-base font-black text-white"
             >
-              {tab.label}
+              Guardar gasto
             </button>
-          ))}
-        </div>
-      </nav>
+          </form>
+        </Modal>
+      )}
     </main>
   );
 }
