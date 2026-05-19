@@ -40,6 +40,11 @@ type ChartItem = {
   percentage: number;
 };
 
+type ChartDetail = {
+  type: CategoryType;
+  category: string;
+} | null;
+
 const STORAGE_KEY = "track-my-spend-months";
 const CATEGORY_STORAGE_KEY = "track-my-spend-categories";
 
@@ -238,11 +243,13 @@ function Modal({
 function ChartList({
   title,
   data,
-  accent = "green"
+  accent = "green",
+  onSelectCategory
 }: {
   title: string;
   data: ChartItem[];
   accent?: "green" | "coral";
+  onSelectCategory: (category: string) => void;
 }) {
   const barClass = accent === "green" ? "bg-leaf" : "bg-coral";
 
@@ -263,21 +270,27 @@ function ChartList({
         <ul className="mt-5 space-y-5">
           {data.map((item) => (
             <li key={item.category}>
-              <div className="mb-2 flex items-end justify-between gap-3">
-                <div>
-                  <p className="font-bold text-ink">{item.category}</p>
-                  <p className="mt-1 text-xs font-semibold text-ink/50">
-                    {item.percentage.toFixed(0)}% del total
-                  </p>
+              <button
+                type="button"
+                onClick={() => onSelectCategory(item.category)}
+                className="w-full rounded-[22px] p-2 text-left transition hover:bg-paper"
+              >
+                <div className="mb-2 flex items-end justify-between gap-3">
+                  <div>
+                    <p className="font-bold text-ink">{item.category}</p>
+                    <p className="mt-1 text-xs font-semibold text-ink/50">
+                      {item.percentage.toFixed(0)}% del total
+                    </p>
+                  </div>
+                  <p className="text-sm font-black text-ink">{formatCurrency(item.amount)}</p>
                 </div>
-                <p className="text-sm font-black text-ink">{formatCurrency(item.amount)}</p>
-              </div>
-              <div className="h-4 overflow-hidden rounded-full bg-paper">
-                <div
-                  className={`h-full rounded-full ${barClass}`}
-                  style={{ width: `${item.percentage}%` }}
-                />
-              </div>
+                <div className="h-4 overflow-hidden rounded-full bg-paper">
+                  <div
+                    className={`h-full rounded-full ${barClass}`}
+                    style={{ width: `${item.percentage}%` }}
+                  />
+                </div>
+              </button>
             </li>
           ))}
         </ul>
@@ -289,6 +302,7 @@ function ChartList({
 export default function Home() {
   const [selectedTab, setSelectedTab] = useState<Tab>("summary");
   const [activeModal, setActiveModal] = useState<ModalType>("none");
+  const [chartDetail, setChartDetail] = useState<ChartDetail>(null);
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey);
   const [storedBudget, setStoredBudget] = useState<StoredBudget>({});
   const [categoryConfig, setCategoryConfig] = useState<CategoryConfig>({
@@ -371,12 +385,12 @@ export default function Home() {
   }, [categoryConfig, expenseCategory, incomeCategory]);
 
   useEffect(() => {
-    document.body.style.overflow = activeModal === "none" ? "" : "hidden";
+    document.body.style.overflow = activeModal === "none" && !chartDetail ? "" : "hidden";
 
     return () => {
       document.body.style.overflow = "";
     };
-  }, [activeModal]);
+  }, [activeModal, chartDetail]);
 
   const monthData = storedBudget[selectedMonth] || emptyMonth;
 
@@ -396,6 +410,22 @@ export default function Home() {
   const incomeChartData = useMemo(() => getChartData(monthData.incomes), [monthData.incomes]);
   const expenseChartData = useMemo(() => getChartData(monthData.expenses), [monthData.expenses]);
   const topCategories = expenseChartData.slice(0, 3);
+  const chartDetailRecords = useMemo(() => {
+    if (!chartDetail) {
+      return [];
+    }
+
+    const records = chartDetail.type === "income" ? monthData.incomes : monthData.expenses;
+
+    return records.filter(
+      (record) => record.category.toLowerCase() === chartDetail.category.toLowerCase()
+    );
+  }, [chartDetail, monthData.expenses, monthData.incomes]);
+  const chartDetailTotal = chartDetailRecords.reduce((total, record) => total + record.amount, 0);
+  const chartDetailBaseTotal =
+    chartDetail?.type === "income" ? totalIncome : chartDetail?.type === "expense" ? totalSpent : 0;
+  const chartDetailPercentage =
+    chartDetailBaseTotal > 0 ? (chartDetailTotal / chartDetailBaseTotal) * 100 : 0;
 
   function updateCurrentMonth(nextData: MonthData) {
     setStoredBudget((current) => ({
@@ -852,8 +882,17 @@ export default function Home() {
 
         {selectedTab === "charts" && (
           <>
-            <ChartList title="Gastos por categoria" data={expenseChartData} accent="coral" />
-            <ChartList title="Ingresos por categoria" data={incomeChartData} />
+            <ChartList
+              title="Gastos por categoria"
+              data={expenseChartData}
+              accent="coral"
+              onSelectCategory={(category) => setChartDetail({ type: "expense", category })}
+            />
+            <ChartList
+              title="Ingresos por categoria"
+              data={incomeChartData}
+              onSelectCategory={(category) => setChartDetail({ type: "income", category })}
+            />
           </>
         )}
       </section>
@@ -1034,6 +1073,78 @@ export default function Home() {
                   </ul>
                 </section>
               ))}
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {chartDetail && (
+        <Modal title={chartDetail.category} onClose={() => setChartDetail(null)}>
+          <div className="max-h-[75vh] overflow-y-auto pr-1">
+            <div
+              className={`rounded-[28px] p-5 ${
+                chartDetail.type === "income" ? "bg-mint" : "bg-coral/10"
+              }`}
+            >
+              <p
+                className={`text-sm font-black uppercase tracking-wide ${
+                  chartDetail.type === "income" ? "text-leaf" : "text-coral"
+                }`}
+              >
+                {chartDetail.type === "income" ? "Ingresos" : "Gastos"}
+              </p>
+              <p className="mt-3 break-words text-4xl font-black text-ink">
+                {formatCurrency(chartDetailTotal)}
+              </p>
+              <p className="mt-2 text-sm font-bold text-ink/60">
+                {chartDetailPercentage.toFixed(0)}% del total de{" "}
+                {chartDetail.type === "income" ? "ingresos" : "gastos"} del mes
+              </p>
+            </div>
+
+            <div className="mt-5">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-lg font-black text-ink">Movimientos</h3>
+                <span className="rounded-full bg-paper px-3 py-2 text-xs font-black text-ink/55">
+                  {chartDetailRecords.length}
+                </span>
+              </div>
+
+              {chartDetailRecords.length === 0 ? (
+                <div className="mt-3">
+                  <EmptyState>No hay movimientos registrados en esta categoria.</EmptyState>
+                </div>
+              ) : (
+                <ul className="mt-3 grid gap-3">
+                  {chartDetailRecords.map((record) => {
+                    const title =
+                      chartDetail.type === "income"
+                        ? (record as Income).description || "Ingreso sin descripcion"
+                        : (record as Expense).name;
+
+                    return (
+                      <li
+                        key={record.id}
+                        className="flex items-center justify-between gap-3 rounded-[22px] bg-paper p-4"
+                      >
+                        <div>
+                          <p className="font-black text-ink">{title}</p>
+                          <p className="mt-1 text-xs font-bold text-ink/50">
+                            {record.category} - {formatDate(record.date)}
+                          </p>
+                        </div>
+                        <p
+                          className={`text-right font-black ${
+                            chartDetail.type === "income" ? "text-leaf" : "text-ink"
+                          }`}
+                        >
+                          {formatCurrency(record.amount)}
+                        </p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
           </div>
         </Modal>
