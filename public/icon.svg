@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Icono de Track My Spend</title>
+  <rect width="512" height="512" rx="96" fill="#2f7d5c"/>
+  <circle cx="256" cy="256" r="168" fill="#fffaf1"/>
+  <path fill="#f9735b" d="M154 268c0-67 45-114 110-114 42 0 77 20 95 54l-55 29c-8-17-22-27-40-27-28 0-47 24-47 58 0 35 19 58 49 58 18 0 32-9 41-25l54 29c-19 33-54 52-97 52-66 0-110-46-110-114z"/>
+  <path fill="#18231d" d="M246 104h34v54h-34zM246 354h34v54h-34z"/>
+</svg>

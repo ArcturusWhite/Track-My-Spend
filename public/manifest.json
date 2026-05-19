@@ -1,0 +1,19 @@
+{
+  "name": "Track My Spend",
+  "short_name": "Spend",
+  "description": "App personal para controlar ingresos, egresos y presupuesto mensual.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fffaf1",
+  "theme_color": "#2f7d5c",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
