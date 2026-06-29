@@ -12,6 +12,7 @@ type ModalType =
   | "editIncome"
   | "editExpense";
 type CategoryType = "income" | "expense";
+type FilterMode = "month" | "week" | "day" | "custom";
 
 type Income = {
   id: string;
@@ -80,6 +81,12 @@ const monthFormatter = new Intl.DateTimeFormat("es-PA", {
   year: "numeric"
 });
 
+const rangeDateFormatter = new Intl.DateTimeFormat("es-PA", {
+  day: "numeric",
+  month: "long",
+  year: "numeric"
+});
+
 function getCurrentMonthKey() {
   return new Date().toISOString().slice(0, 7);
 }
@@ -102,8 +109,48 @@ function formatMonth(monthKey: string) {
 }
 
 function formatDate(dateKey: string) {
-  const [year, month, day] = dateKey.split("-").map(Number);
+  const [year, month, day] = dateKey.slice(0, 10).split("-").map(Number);
   return new Date(year, month - 1, day).toLocaleDateString("es-PA");
+}
+
+function getDaysInMonth(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  return new Date(year, month, 0).getDate();
+}
+
+function getMonthRange(monthKey: string) {
+  return {
+    start: `${monthKey}-01`,
+    end: `${monthKey}-${String(getDaysInMonth(monthKey)).padStart(2, "0")}`
+  };
+}
+
+function parseLocalDate(dateKey: string) {
+  const [year, month, day] = dateKey.slice(0, 10).split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatRangeLabel(start: string, end: string, mode: FilterMode) {
+  if (mode === "month") {
+    return formatMonth(start.slice(0, 7));
+  }
+
+  if (start === end) {
+    return rangeDateFormatter.format(parseLocalDate(start));
+  }
+
+  const startDate = parseLocalDate(start);
+  const endDate = parseLocalDate(end);
+  const sameMonth =
+    startDate.getFullYear() === endDate.getFullYear() &&
+    startDate.getMonth() === endDate.getMonth();
+
+  if (sameMonth) {
+    const monthName = new Intl.DateTimeFormat("es-PA", { month: "long" }).format(startDate);
+    return `${startDate.getDate()} al ${endDate.getDate()} de ${monthName} ${endDate.getFullYear()}`;
+  }
+
+  return `${rangeDateFormatter.format(startDate)} al ${rangeDateFormatter.format(endDate)}`;
 }
 
 function createId() {
@@ -311,6 +358,11 @@ export default function Home() {
   const [activeModal, setActiveModal] = useState<ModalType>("none");
   const [chartDetail, setChartDetail] = useState<ChartDetail>(null);
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey);
+  const [filterMode, setFilterMode] = useState<FilterMode>("month");
+  const [selectedWeek, setSelectedWeek] = useState(1);
+  const [selectedDay, setSelectedDay] = useState(getTodayKey);
+  const [customStart, setCustomStart] = useState(() => getMonthRange(getCurrentMonthKey()).start);
+  const [customEnd, setCustomEnd] = useState(() => getMonthRange(getCurrentMonthKey()).end);
   const [storedBudget, setStoredBudget] = useState<StoredBudget>({});
   const [categoryConfig, setCategoryConfig] = useState<CategoryConfig>({
     income: defaultIncomeCategories,
@@ -411,33 +463,99 @@ export default function Home() {
 
   const monthData = storedBudget[selectedMonth] || emptyMonth;
 
+  const weekOptions = useMemo(() => {
+    const daysInMonth = getDaysInMonth(selectedMonth);
+    const numberOfWeeks = Math.ceil(daysInMonth / 7);
+
+    return Array.from({ length: numberOfWeeks }, (_, index) => {
+      const startDay = index * 7 + 1;
+      const endDay = Math.min(startDay + 6, daysInMonth);
+      return {
+        value: index + 1,
+        label: `Semana ${index + 1} (${startDay}-${endDay})`
+      };
+    });
+  }, [selectedMonth]);
+
+  const activeDateRange = useMemo(() => {
+    const monthRange = getMonthRange(selectedMonth);
+
+    if (filterMode === "week") {
+      const startDay = (selectedWeek - 1) * 7 + 1;
+      const endDay = Math.min(startDay + 6, getDaysInMonth(selectedMonth));
+      return {
+        start: `${selectedMonth}-${String(startDay).padStart(2, "0")}`,
+        end: `${selectedMonth}-${String(endDay).padStart(2, "0")}`
+      };
+    }
+
+    if (filterMode === "day") {
+      const day = selectedDay || monthRange.start;
+      return { start: day, end: day };
+    }
+
+    if (filterMode === "custom") {
+      const start = customStart || monthRange.start;
+      const end = customEnd || start;
+      return start <= end ? { start, end } : { start: end, end: start };
+    }
+
+    return monthRange;
+  }, [customEnd, customStart, filterMode, selectedDay, selectedMonth, selectedWeek]);
+
+  const filteredData = useMemo<MonthData>(() => {
+    const allIncomes = Object.values(storedBudget).flatMap((data) => data.incomes);
+    const allExpenses = Object.values(storedBudget).flatMap((data) => data.expenses);
+    const isInRange = (date: string) => {
+      const normalizedDate = date.slice(0, 10);
+      return normalizedDate >= activeDateRange.start && normalizedDate <= activeDateRange.end;
+    };
+
+    return {
+      incomes: allIncomes.filter((income) => isInRange(income.date)),
+      expenses: allExpenses.filter((expense) => isInRange(expense.date))
+    };
+  }, [activeDateRange.end, activeDateRange.start, storedBudget]);
+
+  const activeRangeLabel = formatRangeLabel(
+    activeDateRange.start,
+    activeDateRange.end,
+    filterMode
+  );
+
   const totalIncome = useMemo(
-    () => monthData.incomes.reduce((total, income) => total + income.amount, 0),
-    [monthData.incomes]
+    () => filteredData.incomes.reduce((total, income) => total + income.amount, 0),
+    [filteredData.incomes]
   );
 
   const totalSpent = useMemo(
-    () => monthData.expenses.reduce((total, expense) => total + expense.amount, 0),
-    [monthData.expenses]
+    () => filteredData.expenses.reduce((total, expense) => total + expense.amount, 0),
+    [filteredData.expenses]
   );
 
   const remainingBalance = totalIncome - totalSpent;
   const usedPercentage = totalIncome > 0 ? Math.min((totalSpent / totalIncome) * 100, 100) : 0;
 
-  const incomeChartData = useMemo(() => getChartData(monthData.incomes), [monthData.incomes]);
-  const expenseChartData = useMemo(() => getChartData(monthData.expenses), [monthData.expenses]);
+  const incomeChartData = useMemo(
+    () => getChartData(filteredData.incomes),
+    [filteredData.incomes]
+  );
+  const expenseChartData = useMemo(
+    () => getChartData(filteredData.expenses),
+    [filteredData.expenses]
+  );
   const topCategories = expenseChartData.slice(0, 3);
   const chartDetailRecords = useMemo(() => {
     if (!chartDetail) {
       return [];
     }
 
-    const records = chartDetail.type === "income" ? monthData.incomes : monthData.expenses;
+    const records = chartDetail.type === "income" ? filteredData.incomes : filteredData.expenses;
 
     return records.filter(
       (record) => record.category.toLowerCase() === chartDetail.category.toLowerCase()
     );
-  }, [chartDetail, monthData.expenses, monthData.incomes]);
+  }, [chartDetail, filteredData.expenses, filteredData.incomes]);
   const chartDetailTotal = chartDetailRecords.reduce((total, record) => total + record.amount, 0);
   const chartDetailBaseTotal =
     chartDetail?.type === "income" ? totalIncome : chartDetail?.type === "expense" ? totalSpent : 0;
@@ -449,6 +567,21 @@ export default function Home() {
       ...current,
       [selectedMonth]: nextData
     }));
+  }
+
+  function changeSelectedMonth(monthKey: string) {
+    const nextMonth = monthKey || getCurrentMonthKey();
+    const nextRange = getMonthRange(nextMonth);
+    const today = getTodayKey();
+
+    setSelectedMonth(nextMonth);
+    setSelectedWeek(1);
+    const defaultDate = today.startsWith(nextMonth) ? today : nextRange.start;
+    setSelectedDay(defaultDate);
+    setCustomStart(nextRange.start);
+    setCustomEnd(nextRange.end);
+    setIncomeDate(defaultDate);
+    setExpenseDate(defaultDate);
   }
 
   function addIncome(event: FormEvent<HTMLFormElement>) {
@@ -482,10 +615,14 @@ export default function Home() {
   }
 
   function deleteIncome(id: string) {
-    updateCurrentMonth({
-      ...monthData,
-      incomes: monthData.incomes.filter((income) => income.id !== id)
-    });
+    setStoredBudget((current) =>
+      Object.fromEntries(
+        Object.entries(current).map(([monthKey, data]) => [
+          monthKey,
+          { ...data, incomes: data.incomes.filter((income) => income.id !== id) }
+        ])
+      )
+    );
   }
 
   function openEditIncome(income: Income) {
@@ -507,20 +644,27 @@ export default function Home() {
       return;
     }
 
-    updateCurrentMonth({
-      ...monthData,
-      incomes: monthData.incomes.map((income) =>
-        income.id === editingIncomeId
-          ? {
-              ...income,
-              category: editIncomeCategory,
-              description: editIncomeDescription.trim(),
-              amount,
-              date: editIncomeDate || getTodayKey()
-            }
-          : income
+    setStoredBudget((current) =>
+      Object.fromEntries(
+        Object.entries(current).map(([monthKey, data]) => [
+          monthKey,
+          {
+            ...data,
+            incomes: data.incomes.map((income) =>
+              income.id === editingIncomeId
+                ? {
+                    ...income,
+                    category: editIncomeCategory,
+                    description: editIncomeDescription.trim(),
+                    amount,
+                    date: editIncomeDate || getTodayKey()
+                  }
+                : income
+            )
+          }
+        ])
       )
-    });
+    );
 
     setEditingIncomeId("");
     setEditIncomeCategory(categoryConfig.income[0] || fallbackCategories.income);
@@ -561,10 +705,14 @@ export default function Home() {
   }
 
   function deleteExpense(id: string) {
-    updateCurrentMonth({
-      ...monthData,
-      expenses: monthData.expenses.filter((expense) => expense.id !== id)
-    });
+    setStoredBudget((current) =>
+      Object.fromEntries(
+        Object.entries(current).map(([monthKey, data]) => [
+          monthKey,
+          { ...data, expenses: data.expenses.filter((expense) => expense.id !== id) }
+        ])
+      )
+    );
   }
 
   function openEditExpense(expense: Expense) {
@@ -586,20 +734,27 @@ export default function Home() {
       return;
     }
 
-    updateCurrentMonth({
-      ...monthData,
-      expenses: monthData.expenses.map((expense) =>
-        expense.id === editingExpenseId
-          ? {
-              ...expense,
-              name: editExpenseName.trim(),
-              amount,
-              category: editExpenseCategory,
-              date: editExpenseDate || getTodayKey()
-            }
-          : expense
+    setStoredBudget((current) =>
+      Object.fromEntries(
+        Object.entries(current).map(([monthKey, data]) => [
+          monthKey,
+          {
+            ...data,
+            expenses: data.expenses.map((expense) =>
+              expense.id === editingExpenseId
+                ? {
+                    ...expense,
+                    name: editExpenseName.trim(),
+                    amount,
+                    category: editExpenseCategory,
+                    date: editExpenseDate || getTodayKey()
+                  }
+                : expense
+            )
+          }
+        ])
       )
-    });
+    );
 
     setEditingExpenseId("");
     setEditExpenseName("");
@@ -795,7 +950,7 @@ export default function Home() {
                 id="month"
                 type="month"
                 value={selectedMonth}
-                onChange={(event) => setSelectedMonth(event.target.value || getCurrentMonthKey())}
+                onChange={(event) => changeSelectedMonth(event.target.value)}
                 className="w-[8.5rem] bg-transparent text-sm font-black text-white outline-none"
               />
             </label>
@@ -807,10 +962,100 @@ export default function Home() {
               {formatCurrency(remainingBalance)}
             </p>
             <p className="mt-2 text-sm font-bold capitalize text-white/70">
-              {formatMonth(selectedMonth)}
+              {activeRangeLabel}
             </p>
           </div>
         </header>
+
+        <Card>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-black text-ink">Periodo</h2>
+              <p className="mt-1 text-sm font-semibold capitalize text-leaf">{activeRangeLabel}</p>
+            </div>
+            <span className="rounded-full bg-mint px-3 py-2 text-xs font-black text-leaf">
+              Filtro activo
+            </span>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            {([
+              ["month", "Mes completo"],
+              ["week", "Semana"],
+              ["day", "Dia"],
+              ["custom", "Personalizado"]
+            ] as Array<[FilterMode, string]>).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setFilterMode(mode)}
+                className={`min-h-12 rounded-[18px] px-3 py-3 text-sm font-black transition ${
+                  filterMode === mode ? "bg-leaf text-white" : "bg-paper text-ink/60"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {filterMode === "week" && (
+            <label className="mt-4 grid gap-2 text-sm font-black text-ink" htmlFor="week-filter">
+              Semana del mes
+              <select
+                id="week-filter"
+                value={selectedWeek}
+                onChange={(event) => setSelectedWeek(Number(event.target.value))}
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
+              >
+                {weekOptions.map((week) => (
+                  <option key={week.value} value={week.value}>
+                    {week.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {filterMode === "day" && (
+            <label className="mt-4 grid gap-2 text-sm font-black text-ink" htmlFor="day-filter">
+              Dia seleccionado
+              <input
+                id="day-filter"
+                type="date"
+                min={getMonthRange(selectedMonth).start}
+                max={getMonthRange(selectedMonth).end}
+                value={selectedDay}
+                onChange={(event) => setSelectedDay(event.target.value)}
+                className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
+              />
+            </label>
+          )}
+
+          {filterMode === "custom" && (
+            <div className="mt-4 grid gap-3">
+              <label className="grid gap-2 text-sm font-black text-ink" htmlFor="custom-start">
+                Fecha inicial
+                <input
+                  id="custom-start"
+                  type="date"
+                  value={customStart}
+                  onChange={(event) => setCustomStart(event.target.value)}
+                  className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-black text-ink" htmlFor="custom-end">
+                Fecha final
+                <input
+                  id="custom-end"
+                  type="date"
+                  value={customEnd}
+                  onChange={(event) => setCustomEnd(event.target.value)}
+                  className="rounded-[20px] border border-ink/10 bg-paper px-4 py-4 text-base font-bold outline-none focus:border-leaf"
+                />
+              </label>
+            </div>
+          )}
+        </Card>
 
         {selectedTab === "summary" && (
           <>
@@ -824,7 +1069,7 @@ export default function Home() {
                 <div>
                   <h2 className="text-lg font-black text-ink">Uso del presupuesto</h2>
                   <p className="mt-1 text-sm font-semibold text-ink/50">
-                    {usedPercentage.toFixed(0)}% usado este mes
+                    {usedPercentage.toFixed(0)}% usado en el periodo
                   </p>
                 </div>
                 <span className="rounded-full bg-mint px-3 py-2 text-sm font-black text-leaf">
@@ -853,7 +1098,7 @@ export default function Home() {
 
               {topCategories.length === 0 ? (
                 <div className="mt-4">
-                  <EmptyState>Agrega gastos para ver un resumen rapido por categoria.</EmptyState>
+                  <EmptyState>No hay gastos por categoria en el rango seleccionado.</EmptyState>
                 </div>
               ) : (
                 <ul className="mt-4 space-y-3">
@@ -883,7 +1128,7 @@ export default function Home() {
               <div>
                 <h2 className="text-xl font-black text-ink">Ingresos</h2>
                 <p className="mt-1 text-sm font-semibold text-ink/50">
-                  {monthData.incomes.length} registros este mes
+                  {filteredData.incomes.length} registros en el periodo
                 </p>
               </div>
               <button
@@ -895,13 +1140,13 @@ export default function Home() {
               </button>
             </div>
 
-            {monthData.incomes.length === 0 ? (
+            {filteredData.incomes.length === 0 ? (
               <div className="mt-5">
-                <EmptyState>Agrega ingresos para calcular el presupuesto mensual.</EmptyState>
+                <EmptyState>No hay ingresos en el rango seleccionado.</EmptyState>
               </div>
             ) : (
               <ul className="mt-5 space-y-3">
-                {monthData.incomes.map((income) => (
+                {filteredData.incomes.map((income) => (
                   <li
                     key={income.id}
                     className="flex items-center justify-between gap-3 rounded-[24px] bg-mint p-4"
@@ -942,7 +1187,7 @@ export default function Home() {
               <div>
                 <h2 className="text-xl font-black text-ink">Gastos</h2>
                 <p className="mt-1 text-sm font-semibold text-ink/50">
-                  {monthData.expenses.length} registros este mes
+                  {filteredData.expenses.length} registros en el periodo
                 </p>
               </div>
               <button
@@ -954,13 +1199,13 @@ export default function Home() {
               </button>
             </div>
 
-            {monthData.expenses.length === 0 ? (
+            {filteredData.expenses.length === 0 ? (
               <div className="mt-5">
-                <EmptyState>Todavia no hay gastos para este mes.</EmptyState>
+                <EmptyState>No hay gastos en el rango seleccionado.</EmptyState>
               </div>
             ) : (
               <ul className="mt-5 space-y-3">
-                {monthData.expenses.map((expense) => (
+                {filteredData.expenses.map((expense) => (
                   <li
                     key={expense.id}
                     className="flex items-center justify-between gap-3 rounded-[24px] bg-paper p-4"
@@ -1213,7 +1458,7 @@ export default function Home() {
               </p>
               <p className="mt-2 text-sm font-bold text-ink/60">
                 {chartDetailPercentage.toFixed(0)}% del total de{" "}
-                {chartDetail.type === "income" ? "ingresos" : "gastos"} del mes
+                {chartDetail.type === "income" ? "ingresos" : "gastos"} del periodo
               </p>
             </div>
 
